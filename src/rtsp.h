@@ -1,4 +1,4 @@
-// Last Update:2019-04-30 11:49:07
+// Last Update:2019-05-08 20:43:15
 /**
  * @file rtsp.h
  * @brief 
@@ -10,10 +10,16 @@
 #ifndef RTSP_H
 #define RTSP_H
 
+#include <netinet/in.h>
+#include <stdlib.h>
+#include <arpa/inet.h>
 
 typedef struct {
     int sockfd;
     int connfd;
+    int client_port_rtp;
+    int client_port_rtcp;
+    struct sockaddr_in client_addr;
 }rtsp_context_t;
 
 typedef struct {

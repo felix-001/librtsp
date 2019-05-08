@@ -1,4 +1,4 @@
-// Last Update:2019-04-30 16:46:18
+// Last Update:2019-05-08 20:45:35
 /**
  * @file rtsp.c
  * @brief 
@@ -27,12 +27,16 @@ typedef struct {
 enum {
     RTSP_OPTIONS,
     RTSP_DESCRIBE,
+    RTSP_SETUP,
+    RTSP_PLAY,
 };
 
 static rtsp_cmd_t cmd_list[] = 
 {
     { "OPTIONS", RTSP_OPTIONS },
-    { "DESCRIBE", RTSP_DESCRIBE }
+    { "DESCRIBE", RTSP_DESCRIBE },
+    { "SETUP", RTSP_SETUP },
+    { "PLAY", RTSP_PLAY }
 };
 
 int rtsp_get_cmd( char *buf )
@@ -69,13 +73,107 @@ int rtsp_handle_options( rtsp_context_t *ctx )
     return 0;
 }
 
+int rtsp_handle_play( rtsp_context_t *ctx )
+{
+    int ret = 0;
+    char *resp = "RTSP/1.0 200 OK\r\n"
+        "CSep: 4\r\n"
+        "Session: 313720730\r\n\r\n";
+    int fd = 0, opt = 1;
+    struct sockaddr_in addr;
+
+    ret = write( ctx->connfd, resp, strlen(resp) );
+    if ( ret <= 0 ) {
+        LOGE("send response error\n");
+        return -1;
+    }
+
+    fd = socket( AF_INET, SOCK_DGRAM, 0 );
+    if ( fd < 0 ) {
+        LOGE("create socket error\n");
+        return -1;
+    }
+
+    addr.sin_port = htons( 10036 );
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_family = AF_INET;
+    setsockopt( fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt) );
+
+    ret = bind( fd, (struct sockaddr *)&addr, sizeof(addr) );
+    if ( ret < 0 ) {
+        LOGE("bind error\n");
+        return -1;
+    }
+    addr = ctx->client_addr;
+    addr.sin_port = htons( ctx->client_port_rtp );
+
+    ret = connect( fd, (struct sockaddr *)&addr, sizeof(addr) );
+    if ( ret < 0 ) {
+        LOGE("connect error\n");
+        return -1;
+    }
+    return 0;
+}
+
+int rtsp_handle_setup( rtsp_context_t *ctx, char *buf )
+{
+    int ret = 0;
+    char *resp = "RTSP/1.0 200 OK\r\n"
+        "CSeq: 3\r\n"
+        "Session: 313720730\r\n"
+        "Transport: RTP/AVP/UDP;unicast;client_port=11489-11490\r\n\r\n";
+    char *s = "client_port=";
+    char *start = strstr( buf, s );
+
+    if ( !start ) {
+        LOGE("parse transport error\n");
+        return -1;
+    }
+
+    start += strlen(s);
+    ret = sscanf( start, "%u-%u", &ctx->client_port_rtp, &ctx->client_port_rtcp );
+
+    LOGI("rtp port: %d, rtcp port : %d\n", ctx->client_port_rtp, ctx->client_port_rtcp );
+
+    ret = write( ctx->connfd, resp, strlen(resp) );
+    if ( ret <= 0 ) {
+        LOGE("send response error\n");
+        return -1;
+    }
+    return 0;
+}
+
 int rtsp_handle_describe( rtsp_context_t *ctx )
 {
-    char *resp = "RTSP/1.0 200 OK\r\n"
-        "CSeq: 4\r\n"
-        "Content-Type: application/sdp\r\n"
-        "Content-Base: rtsp://172.17.11.155:554/h264/ch1/main/av_stream/\r\n"
-        "Content-Length: 598\r\n\r\n"
+    int ret = 0;
+    char *sdp = "v=0\r\n"
+                "o=- 0 0 IN IP4 127.0.0.1\r\n"
+                "s=librtsp\r\n"
+                "c=IN IP4 0.0.0.0\r\n"
+                "t=0 0\r\n"
+                "a=tool:libavformat 52.73.0\r\n"
+                "m=video 0 RTP/AVP 96\r\n"
+                "a=rtpmap:96 H264/90000\r\n"
+                "a=fmtp:96 packetization-mode=1\r\n"
+                "a=control:streamid=0\r\n"; 
+
+    char resp[512] = { 0 };
+
+    sprintf( resp, 
+            "RTSP/1.0 200 OK\r\n"
+            "CSeq: 2\r\n"
+            "Content-Type: application/sdp\r\n"
+            "Content-Length: %ld\r\n"
+            "\r\n"
+            "%s" 
+            , strlen(sdp), sdp 
+             );
+
+    ret = write( ctx->connfd, resp, strlen(resp) );
+    if ( ret <= 0 ) {
+        LOGE("send response error\n");
+        return -1;
+    }
     return 0;
 }
 
@@ -97,6 +195,12 @@ int rtsp_handle( rtsp_context_t *ctx, char *buf, int len  )
         break;
     case RTSP_DESCRIBE:
         rtsp_handle_describe( ctx );
+        break;
+    case RTSP_SETUP:
+        rtsp_handle_setup( ctx, buf );
+        break;
+    case RTSP_PLAY:
+        rtsp_handle_play( ctx );
         break;
     }
 
@@ -146,6 +250,7 @@ void *rtsp_monitoring_task( void *arg )
             return NULL;
         }
         LOGI("new connection form %s : %d\n", inet_ntoa(cli_addr.sin_addr), cli_addr.sin_port );
+        ctx->client_addr = cli_addr;
         pthread_create( &thread, NULL, rtsp_eventloop, ctx );
     }
     return NULL;
