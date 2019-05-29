@@ -1,4 +1,4 @@
-// Last Update:2019-05-08 20:45:35
+// Last Update:2019-05-16 16:11:01
 /**
  * @file rtsp.c
  * @brief 
@@ -77,7 +77,7 @@ int rtsp_handle_play( rtsp_context_t *ctx )
 {
     int ret = 0;
     char *resp = "RTSP/1.0 200 OK\r\n"
-        "CSep: 4\r\n"
+        "CSeq: 4\r\n"
         "Session: 313720730\r\n\r\n";
     int fd = 0, opt = 1;
     struct sockaddr_in addr;
@@ -105,6 +105,7 @@ int rtsp_handle_play( rtsp_context_t *ctx )
         return -1;
     }
     addr = ctx->client_addr;
+    LOGI("connect to port %d\n", ctx->client_port_rtp );
     addr.sin_port = htons( ctx->client_port_rtp );
 
     ret = connect( fd, (struct sockaddr *)&addr, sizeof(addr) );
@@ -112,6 +113,9 @@ int rtsp_handle_play( rtsp_context_t *ctx )
         LOGE("connect error\n");
         return -1;
     }
+
+    ctx->rtp_fd = fd;
+    ctx->start_play = 1;
     return 0;
 }
 

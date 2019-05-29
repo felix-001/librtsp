@@ -19,7 +19,9 @@ typedef struct {
     int connfd;
     int client_port_rtp;
     int client_port_rtcp;
+    int rtp_fd;
     struct sockaddr_in client_addr;
+    int start_play;
 }rtsp_context_t;
 
 typedef struct {
